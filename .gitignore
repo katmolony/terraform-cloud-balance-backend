@@ -1,0 +1,18 @@
+# Terraform state files
+*.tfstate
+*.tfstate.*
+
+# Terraform variable files (if containing secrets)
+terraform.tfvars
+
+# Terraform plan files
+*.tfplan
+
+# ZIP files and build artifacts
+*.zip
+
+# .terraform directory
+.terraform/
+
+# Crash logs
+crash.log
