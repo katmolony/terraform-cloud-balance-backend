@@ -123,11 +123,12 @@ resource "aws_apigatewayv2_integration" "lambda_integration" {
   integration_uri  = aws_lambda_function.backend_lambda.invoke_arn
 }
 
-resource "aws_apigatewayv2_route" "root_route" {
-  api_id    = aws_apigatewayv2_api.http_api.id
-  route_key = "ANY /{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-}
+# API Gateway route commented out to allow for Cognito
+#resource "aws_apigatewayv2_route" "root_route" {
+#  api_id    = aws_apigatewayv2_api.http_api.id
+#  route_key = "ANY /{proxy+}"
+#  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+#}
 
 # Lambda Permission for API Gateway
 resource "aws_lambda_permission" "apigw" {
@@ -144,51 +145,60 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
 }
 
 # Create Cognito User Pool
-#resource "aws_cognito_user_pool" "cloud_balance_user_pool" {
-#  name = "cloud_balance_user_pool"
-#}
+resource "aws_cognito_user_pool" "cloud_balance_user_pool" {
+  name = "cloud_balance_user_pool"
+}
 
-#resource "aws_cognito_user_pool_client" "cloud_balance_client" {
-#  name         = "cloud_balance_client"
-#  user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
-#  generate_secret = false
-#  explicit_auth_flows = [
-#    "ALLOW_USER_PASSWORD_AUTH",
-#    "ALLOW_REFRESH_TOKEN_AUTH",
-#    "ALLOW_USER_SRP_AUTH"
-#  ]
-#}
+resource "aws_cognito_user_pool_client" "cloud_balance_client" {
+  name         = "cloud_balance_client"
+  user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
+  generate_secret = false
 
-#resource "aws_cognito_user_pool_domain" "cloud_balance_domain" {
-#  domain      = "cloud-balance-${random_id.domain_suffix.hex}"
-#  user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
-#}
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_SRP_AUTH"
+  ]
 
-#resource "random_id" "domain_suffix" {
-#  byte_length = 4
-#}
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows = ["code"]
+  allowed_oauth_scopes = ["email", "openid", "profile"]
+
+  callback_urls = ["http://localhost:3000/callback"]
+  logout_urls   = ["http://localhost:3000/logout"]
+}
+
+
+resource "aws_cognito_user_pool_domain" "cloud_balance_domain" {
+  domain      = "cloud-balance-${random_id.domain_suffix.hex}"
+  user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
+}
+
+resource "random_id" "domain_suffix" {
+  byte_length = 4
+}
 
 # Attach Cognito Authorizer to API Gateway
-#resource "aws_apigatewayv2_authorizer" "cognito_authorizer" {
-#  api_id        = aws_apigatewayv2_api.http_api.id
-#  authorizer_type = "JWT"
-#  identity_sources = ["$request.header.Authorization"]
-  
-#  jwt_configuration {
-#    audience = [aws_cognito_user_pool_client.cloud_balance_client.id]
-#    issuer   = aws_cognito_user_pool.cloud_balance_user_pool.endpoint
-#  }
-#
-#  name = "CognitoAuthorizer"
-#}
+resource "aws_apigatewayv2_authorizer" "cognito_authorizer" {
+  api_id           = aws_apigatewayv2_api.http_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
 
-#resource "aws_apigatewayv2_route" "root_route" {
-#  api_id             = aws_apigatewayv2_api.http_api.id
-#  route_key          = "ANY /{proxy+}"
-#  target             = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-#  authorization_type = "JWT"
-#  authorizer_id      = aws_apigatewayv2_authorizer.cognito_authorizer.id
-#}
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.cloud_balance_client.id]
+    issuer   = "https://${aws_cognito_user_pool.cloud_balance_user_pool.endpoint}"
+  }
+
+  name = "CognitoAuthorizer"
+}
+
+resource "aws_apigatewayv2_route" "root_route" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "ANY /{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_authorizer.id
+}
 
 # Output the Variables for Access
 output "api_gateway_url" {
@@ -200,14 +210,14 @@ output "rds_endpoint" {
 }
 
 # To Output the Cognito Variables
-#output "cognito_user_pool_id" {
-#  value = aws_cognito_user_pool.cloud_balance_user_pool.id
-#}
+output "cognito_user_pool_id" {
+  value = aws_cognito_user_pool.cloud_balance_user_pool.id
+}
 
-#output "cognito_user_pool_client_id" {
-#  value = aws_cognito_user_pool_client.cloud_balance_client.id
-#}
+output "cognito_user_pool_client_id" {
+  value = aws_cognito_user_pool_client.cloud_balance_client.id
+}
 
-#output "cognito_user_pool_domain" {
-#  value = aws_cognito_user_pool_domain.cloud_balance_domain.domain
-#}
+output "cognito_user_pool_domain" {
+  value = aws_cognito_user_pool_domain.cloud_balance_domain.domain
+}
