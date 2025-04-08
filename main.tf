@@ -1,11 +1,15 @@
-#---------------------------------------------------------#
-# Backend Lambda Code                                     #
-#---------------------------------------------------------#
+#--------------------------------------------------------#
+# Backend Lambda Infrastructure for Cloud Balance       #
+#--------------------------------------------------------#
 
 # Set AWS provider region
 provider "aws" {
   region = "us-east-1"
 }
+
+#--------------------------------------------------------#
+# IAM Role and Permissions for Lambda                   #
+#--------------------------------------------------------#
 
 # IAM role to allow Lambda to assume execution permissions
 resource "aws_iam_role" "lambda_exec" {
@@ -57,6 +61,10 @@ resource "aws_iam_role_policy_attachment" "attach_invoke_fetch_to_backend" {
   policy_arn = aws_iam_policy.invoke_fetch_lambda.arn
 }
 
+#--------------------------------------------------------#
+# Networking - Security Groups                          #
+#--------------------------------------------------------#
+
 # Security group for RDS database
 resource "aws_security_group" "rds_sg" {
   name        = "rds-security-group"
@@ -91,6 +99,10 @@ resource "aws_security_group_rule" "lambda_egress" {
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
+#--------------------------------------------------------#
+# Database - RDS PostgreSQL                             #
+#--------------------------------------------------------#
+
 # PostgreSQL RDS instance configuration
 resource "aws_db_instance" "cloud_balance_db" {
   allocated_storage    = 20
@@ -106,6 +118,10 @@ resource "aws_db_instance" "cloud_balance_db" {
   publicly_accessible  = true
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
 }
+
+#--------------------------------------------------------#
+# Lambda Function Configuration                         #
+#--------------------------------------------------------#
 
 # Lambda function for Cloud Balance backend
 resource "aws_lambda_function" "backend_lambda" {
@@ -131,6 +147,10 @@ resource "aws_lambda_function" "backend_lambda" {
     }
   }
 }
+
+#--------------------------------------------------------#
+# API Gateway & Cognito Auth                            #
+#--------------------------------------------------------#
 
 # HTTP API Gateway
 resource "aws_apigatewayv2_api" "http_api" {
@@ -220,7 +240,10 @@ resource "aws_apigatewayv2_route" "root_route" {
   authorizer_id      = aws_apigatewayv2_authorizer.cognito_authorizer.id
 }
 
-# Output URLs and IDs for use in frontend and debugging
+#--------------------------------------------------------#
+# Output variables for use in UI and debugging           #
+#--------------------------------------------------------#
+
 output "api_gateway_url" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
 }
@@ -240,6 +263,10 @@ output "cognito_user_pool_client_id" {
 output "cognito_user_pool_domain" {
   value = aws_cognito_user_pool_domain.cloud_balance_domain.domain
 }
+
+#--------------------------------------------------------#
+# Networking - NAT Gateway + Routing                    #
+#--------------------------------------------------------#
 
 # Create NAT gateway with Elastic IP for outbound internet access
 resource "aws_eip" "nat_eip" {
