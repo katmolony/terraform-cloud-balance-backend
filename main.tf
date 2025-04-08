@@ -1,8 +1,13 @@
+#---------------------------------------------------------#
+# Backend Lambda Code                                     #
+#---------------------------------------------------------#
+
+# Set AWS provider region
 provider "aws" {
   region = "us-east-1"
 }
 
-# IAM Role for Lambda Execution
+# IAM role to allow Lambda to assume execution permissions
 resource "aws_iam_role" "lambda_exec" {
   name = "lambda_execution_role"
 
@@ -18,21 +23,21 @@ resource "aws_iam_role" "lambda_exec" {
   })
 }
 
-# Attach Lambda Basic Execution Policy
+# Grant basic Lambda execution permissions (logs etc)
 resource "aws_iam_policy_attachment" "lambda_logging" {
   name       = "lambda_logging_policy_attachment"
   roles      = [aws_iam_role.lambda_exec.name]
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Attach Lambda VPC Access Policy
+# Grant Lambda access to VPC networking features
 resource "aws_iam_policy_attachment" "lambda_vpc_access" {
   name       = "lambda_vpc_access_policy_attachment"
   roles      = [aws_iam_role.lambda_exec.name]
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# IAM Policy to Allow Invoking Fetch Lambda
+# Custom policy to allow Lambda to invoke another Lambda (fetch Lambda)
 resource "aws_iam_policy" "invoke_fetch_lambda" {
   name = "InvokeFetchLambda"
 
@@ -46,26 +51,27 @@ resource "aws_iam_policy" "invoke_fetch_lambda" {
   })
 }
 
+# Attach the invoke policy to the backend Lambda role
 resource "aws_iam_role_policy_attachment" "attach_invoke_fetch_to_backend" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = aws_iam_policy.invoke_fetch_lambda.arn
 }
 
-# Security Group for RDS (initially without inbound rules)
+# Security group for RDS database
 resource "aws_security_group" "rds_sg" {
   name        = "rds-security-group"
   description = "Allow PostgreSQL access"
   vpc_id      = "vpc-0e64c10620ffbf014"
 }
 
-# Security Group for Lambda (initially without egress rules)
+# Security group for Lambda function
 resource "aws_security_group" "lambda_sg" {
   name        = "lambda-security-group"
   description = "Allow Lambda to access RDS and VPC endpoints"
   vpc_id      = "vpc-0e64c10620ffbf014"
 }
 
-# RDS Inbound Rule to Allow Lambda Security Group
+# Allow Lambda to connect to RDS via port 5432
 resource "aws_security_group_rule" "rds_inbound" {
   type                     = "ingress"
   from_port                = 5432
@@ -75,7 +81,7 @@ resource "aws_security_group_rule" "rds_inbound" {
   source_security_group_id = aws_security_group.lambda_sg.id
 }
 
-# Lambda Egress Rule to Allow Access to RDS and Internet (via NAT or endpoints)
+# Allow Lambda to access the internet (through NAT gateway)
 resource "aws_security_group_rule" "lambda_egress" {
   type              = "egress"
   from_port         = 0
@@ -85,7 +91,7 @@ resource "aws_security_group_rule" "lambda_egress" {
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
-# RDS PostgreSQL Database
+# PostgreSQL RDS instance configuration
 resource "aws_db_instance" "cloud_balance_db" {
   allocated_storage    = 20
   storage_type         = "gp2"
@@ -101,7 +107,7 @@ resource "aws_db_instance" "cloud_balance_db" {
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
 }
 
-# Lambda Function
+# Lambda function for Cloud Balance backend
 resource "aws_lambda_function" "backend_lambda" {
   function_name    = "cloud_balance_backend"
   role             = aws_iam_role.lambda_exec.arn
@@ -126,35 +132,27 @@ resource "aws_lambda_function" "backend_lambda" {
   }
 }
 
-# VPC Endpoint for Lambda API to enable private Lambda invoke
-#resource "aws_vpc_endpoint" "lambda_api" {
-#  vpc_id            = "vpc-0e64c10620ffbf014"
-#  service_name      = "com.amazonaws.us-east-1.lambda"
-#  vpc_endpoint_type = "Interface"
-#  subnet_ids        = ["subnet-0aad0b120e1ecf4e6", "subnet-05f8962b75a12010c"]
-#  security_group_ids = [aws_security_group.lambda_sg.id]
-#  private_dns_enabled = true
-#}
-
-# API Gateway
+# HTTP API Gateway
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "CloudBalanceAPI"
   protocol_type = "HTTP"
 }
 
+# Auto-deploy dev stage for API Gateway
 resource "aws_apigatewayv2_stage" "api_stage" {
   api_id      = aws_apigatewayv2_api.http_api.id
   name        = "dev"
   auto_deploy = true
 }
 
+# Connect API Gateway to Lambda via proxy
 resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id           = aws_apigatewayv2_api.http_api.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.backend_lambda.invoke_arn
 }
 
-# Lambda Permission for API Gateway
+# Permission to allow API Gateway to invoke the backend Lambda
 resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
@@ -163,11 +161,12 @@ resource "aws_lambda_permission" "apigw" {
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
 
-# Create Cognito User Pool
+# Cognito user pool for authentication
 resource "aws_cognito_user_pool" "cloud_balance_user_pool" {
   name = "cloud_balance_user_pool"
 }
 
+# Cognito app client for the user pool
 resource "aws_cognito_user_pool_client" "cloud_balance_client" {
   name         = "cloud_balance_client"
   user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
@@ -187,16 +186,18 @@ resource "aws_cognito_user_pool_client" "cloud_balance_client" {
   logout_urls   = ["http://localhost:3000/logout"]
 }
 
+# Cognito domain setup
 resource "aws_cognito_user_pool_domain" "cloud_balance_domain" {
   domain       = "cloud-balance-${random_id.domain_suffix.hex}"
   user_pool_id = aws_cognito_user_pool.cloud_balance_user_pool.id
 }
 
+# Random suffix for unique domain name
 resource "random_id" "domain_suffix" {
   byte_length = 4
 }
 
-# Attach Cognito Authorizer to API Gateway
+# JWT authorizer using Cognito
 resource "aws_apigatewayv2_authorizer" "cognito_authorizer" {
   api_id           = aws_apigatewayv2_api.http_api.id
   authorizer_type  = "JWT"
@@ -210,6 +211,7 @@ resource "aws_apigatewayv2_authorizer" "cognito_authorizer" {
   name = "CognitoAuthorizer"
 }
 
+# Attach secured route for all paths using Cognito auth
 resource "aws_apigatewayv2_route" "root_route" {
   api_id             = aws_apigatewayv2_api.http_api.id
   route_key          = "ANY /{proxy+}"
@@ -218,7 +220,7 @@ resource "aws_apigatewayv2_route" "root_route" {
   authorizer_id      = aws_apigatewayv2_authorizer.cognito_authorizer.id
 }
 
-# Output the Variables for Access
+# Output URLs and IDs for use in frontend and debugging
 output "api_gateway_url" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
 }
@@ -239,7 +241,7 @@ output "cognito_user_pool_domain" {
   value = aws_cognito_user_pool_domain.cloud_balance_domain.domain
 }
 
-# NAT Gateway for access to fetch Lambda
+# Create NAT gateway with Elastic IP for outbound internet access
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
   tags = {
@@ -249,12 +251,13 @@ resource "aws_eip" "nat_eip" {
 
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat_eip.id
-  subnet_id     = "subnet-0aad0b120e1ecf4e6"
+  subnet_id     = "subnet-0aad0b120e1ecf4e6" # Must be in a public subnet
   tags = {
     Name = "cloud-balance-nat-gateway"
   }
 }
 
+# Route table for private subnets (goes through NAT)
 resource "aws_route_table" "private_rt" {
   vpc_id = "vpc-0e64c10620ffbf014"
   tags = {
@@ -267,10 +270,12 @@ resource "aws_route_table" "private_rt" {
   }
 }
 
+# Public internet gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = "vpc-0e64c10620ffbf014"
 }
 
+# Route table for public subnets (direct to internet)
 resource "aws_route_table" "public_rt" {
   vpc_id = "vpc-0e64c10620ffbf014"
 }
@@ -281,13 +286,14 @@ resource "aws_route" "public_subnet_to_igw" {
   gateway_id             = aws_internet_gateway.igw.id
 }
 
-# Associate private subnets with private route table (so they can use NAT)
+# Associate private subnet with NAT route table
 resource "aws_route_table_association" "private_subnet_1_association" {
-  subnet_id      = "subnet-05f8962b75a12010c" # private subnet
+  subnet_id      = "subnet-05f8962b75a12010c"
   route_table_id = aws_route_table.private_rt.id
 }
 
+# Associate NAT gateway's subnet with public route table
 resource "aws_route_table_association" "public_subnet_association" {
-  subnet_id      = "subnet-0aad0b120e1ecf4e6" # NAT gateway's subnet
+  subnet_id      = "subnet-0aad0b120e1ecf4e6"
   route_table_id = aws_route_table.public_rt.id
 }
