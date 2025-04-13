@@ -48,6 +48,12 @@ After deployment, Terraform will output:
 - `cognito_user_pool_client_id`: App client ID
 - `cognito_user_pool_domain`: Cognito hosted domain for login/redirect
 
+## System Architecture
+
+The diagram below illustrates how the Cloud Balance mobile app, backend API, AWS Lambda functions, and PostgreSQL database interact across public and private cloud environments.
+
+![Cloud Balance Architecture](assets/architect.png)
+
 ## Notes
 
 - The API Gateway is secured with a Cognito JWT authorizer.
